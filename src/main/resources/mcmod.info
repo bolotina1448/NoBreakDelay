@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "${modid}",
+    "name": "No Break Delay",
+    "description": "Убирает ванильную задержку 250 мс между сломанным блоком и началом ломания следующего.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "updateUrl": "",
+    "authorList": [],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]
