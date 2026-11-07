@@ -35,6 +35,11 @@ import org.lwjgl.input.Keyboard;
  *    как HitDelayFix. Серверу это не видно: пакеты такие же, как у игрока,
  *    который просто не промахнулся.
  *
+ * 1b. Legit Break Fix (ВКЛ по умолчанию).
+ *    Ванильный счётчик задержки после поломки блока (5 тиков) идёт только пока
+ *    ЛКМ зажата на блоке, поэтому после паузы первый блок всё равно ломается с задержкой.
+ *    Мод заставляет счётчик идти по времени. Минимум 5 тиков между блоками сохраняется.
+ *
  * 2. No Break Delay (ВЫКЛ по умолчанию).
  *    Обнуляет blockHitDelay — ванильные 5 тиков после поломки блока.
  *    Такого поведения у обычного клиента не бывает, сервер это видит,
@@ -48,7 +53,7 @@ import org.lwjgl.input.Keyboard;
 @Mod(
         modid = NoBreakDelay.MODID,
         name = "No Break Delay",
-        version = "1.2.0",
+        version = "1.3.0",
         acceptedMinecraftVersions = "[1.8.9]",
         acceptableRemoteVersions = "*"
 )
@@ -67,11 +72,14 @@ public class NoBreakDelay {
     private static final float ANVIL_VOLUME = 0.5F;
 
     private boolean hitDelayFix = true;
+    private boolean legitBreakFix = true;
     private boolean noBreakDelay = false;
+    private int delayAtTickStart = -1;
     private volatile boolean blockhitSound = true;
     private volatile boolean blockhitDebug = false;
 
     private KeyBinding hitDelayFixKey;
+    private KeyBinding legitBreakFixKey;
     private KeyBinding noBreakDelayKey;
     private KeyBinding blockhitSoundKey;
     private KeyBinding blockhitDebugKey;
@@ -85,10 +93,12 @@ public class NoBreakDelay {
                 PlayerControllerMP.class, "blockHitDelay", "field_78781_i");
 
         hitDelayFixKey = new KeyBinding("Вкл/выкл Hit Delay Fix", Keyboard.KEY_NONE, "No Break Delay");
+        legitBreakFixKey = new KeyBinding("Вкл/выкл Legit Break Fix", Keyboard.KEY_NONE, "No Break Delay");
         noBreakDelayKey = new KeyBinding("Вкл/выкл No Break Delay (только одиночка!)", Keyboard.KEY_NONE, "No Break Delay");
         blockhitSoundKey = new KeyBinding("Вкл/выкл звук блокхита", Keyboard.KEY_NONE, "No Break Delay");
         blockhitDebugKey = new KeyBinding("Вкл/выкл лог блокхитов в чат", Keyboard.KEY_NONE, "No Break Delay");
         ClientRegistry.registerKeyBinding(hitDelayFixKey);
+        ClientRegistry.registerKeyBinding(legitBreakFixKey);
         ClientRegistry.registerKeyBinding(noBreakDelayKey);
         ClientRegistry.registerKeyBinding(blockhitSoundKey);
         ClientRegistry.registerKeyBinding(blockhitDebugKey);
@@ -160,6 +170,49 @@ public class NoBreakDelay {
     public void onClientTick(TickEvent.ClientTickEvent event) {
         clearMissPenalty();
         clearBlockHitDelay();
+
+        if (event.phase == TickEvent.Phase.START) {
+            delayAtTickStart = readBlockHitDelay();
+        } else {
+            tickDownStuckDelay();
+        }
+    }
+
+    /**
+     * Legit Break Fix. В ванилле blockHitDelay уменьшается только внутри
+     * onPlayerDamageBlock — то есть только пока ЛКМ зажата на блоке. Отпустил кнопку —
+     * счётчик замирает, и следующий блок (даже через 10 секунд) первые 5 тиков не ломается.
+     *
+     * Здесь счётчик идёт по времени: если за тик игра сама его не уменьшила
+     * (и не выставила заново после поломки), уменьшаем на 1. Скорость отсчёта та же,
+     * что у игрока, который держит ЛКМ на блоке, поэтому ванильный минимум
+     * 5 тиков между блоками сохраняется и тайминги пакетов не выходят за ваниль.
+     */
+    private void tickDownStuckDelay() {
+        if (!legitBreakFix || noBreakDelay) return;
+        int now = readBlockHitDelay();
+        if (now > 0 && now == delayAtTickStart) {
+            writeBlockHitDelay(now - 1);
+        }
+    }
+
+    private int readBlockHitDelay() {
+        PlayerControllerMP controller = Minecraft.getMinecraft().playerController;
+        if (controller == null) return -1;
+        try {
+            return blockHitDelayField.getInt(controller);
+        } catch (IllegalAccessException e) {
+            return -1;
+        }
+    }
+
+    private void writeBlockHitDelay(int value) {
+        PlayerControllerMP controller = Minecraft.getMinecraft().playerController;
+        if (controller == null) return;
+        try {
+            blockHitDelayField.setInt(controller, value);
+        } catch (IllegalAccessException ignored) {
+        }
     }
 
     private void clearMissPenalty() {
@@ -191,6 +244,10 @@ public class NoBreakDelay {
         if (hitDelayFixKey.isPressed()) {
             hitDelayFix = !hitDelayFix;
             say("Hit Delay Fix", hitDelayFix);
+        }
+        if (legitBreakFixKey.isPressed()) {
+            legitBreakFix = !legitBreakFix;
+            say("Legit Break Fix", legitBreakFix);
         }
         if (noBreakDelayKey.isPressed()) {
             noBreakDelay = !noBreakDelay;
